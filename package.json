@@ -1,0 +1,14 @@
+{
+  "name": "terminal-chat",
+  "version": "1.0.0",
+  "description": "Pure terminal-based chat application",
+  "main": "server.js",
+  "scripts": {
+    "server": "node server.js",
+    "client": "node client.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs"
+}
