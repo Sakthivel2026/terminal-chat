@@ -1,5 +1,6 @@
 const readline = require("readline");
 const db = require("./database");
+const bcrypt = require("bcrypt");
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -23,11 +24,13 @@ rl.question("Choose option: ", (choice) => {
 function register() {
   rl.question("Username: ", (username) => {
     rl.question("Email: ", (email) => {
-      rl.question("Password: ", (password) => {
+      rl.question("Password: ", async (password) => {
+
+        const hashedPassword = await bcrypt.hash(password, 10);
 
         db.run(
           "INSERT INTO users (username, email, password) VALUES (?, ?, ?)",
-          [username, email, password],
+          [username, email, hashedPassword],
           (err) => {
             if (err) {
               console.log("Username already exists.");
@@ -43,23 +46,58 @@ function register() {
   });
 }
 
+
 function login() {
-  rl.question("Username: ", (username) => {
+  rl.question("Email: ", (email) => {
     rl.question("Password: ", (password) => {
 
       db.get(
-        "SELECT * FROM users WHERE username = ? AND password = ?",
-        [username, password],
-        (err, row) => {
-          if (row) {
-            console.log("Login successful.");
-          } else {
-            console.log("Invalid username or password.");
+        "SELECT * FROM users WHERE email = ?",
+        [email],
+        async (err, user) => {
+          if (!user) {
+            console.log("Invalid credentials");
+            rl.close();
+            return;
           }
-          rl.close();
+
+          const match = await bcrypt.compare(password, user.password);
+
+          if (!match) {
+            console.log("Invalid credentials");
+            rl.close();
+            return;
+          }
+
+          console.log(`Welcome ${user.username}!`);
+          showChatMenu(user);
         }
       );
 
     });
   });
 }
+
+function showChatMenu(user) {
+  console.log("\n=== Chat Menu ===");
+  console.log("1. Join Public Chat");
+  console.log("2. Logout");
+
+  rl.question("Choose: ", (choice) => {
+    if (choice === "1") {
+      joinPublicChat(user);
+    } else {
+      console.log("Logged out");
+      rl.close();
+    }
+  });
+}
+
+function joinPublicChat(user) {
+  console.log(`\nWelcome ${user.username}`);
+  console.log("You can now join terminal chat.");
+  console.log("Run client.js to start chatting.");
+  rl.close();
+}
+
+
