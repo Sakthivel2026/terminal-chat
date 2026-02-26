@@ -14,6 +14,7 @@ function saveUsers(users){
 }
 
 const clients = [];
+const userSockets = new Map();
 
 const server = net.createServer((socket) => {
 
@@ -25,6 +26,7 @@ const server = net.createServer((socket) => {
 
   socket.on("data", (data) => {
     const input = data.toString().trim();
+    if (!input) return;
     const users = loadUsers();
 
     // -------- MENU --------
@@ -88,22 +90,50 @@ const server = net.createServer((socket) => {
       socket.username = socket.tempUsername;
       socket.stage = "CHAT";
       clients.push(socket);
+      userSockets.set(socket.username, socket);
 
       socket.write("Login successful. You can chat now.\n");
       broadcast(`${socket.username} joined the chat\n`, socket);
       return;
     }
 
-    // CHAT
-    if (socket.stage === "CHAT") {
-      broadcast(`${socket.username}: ${input}\n`, socket);
+   // -------- CHAT --------
+if (socket.stage === "CHAT") {
+
+  // PRIVATE MESSAGE
+  if (input.startsWith("/pm ")) {
+    const parts = input.split(" ");
+    const targetUser = parts[1];
+    const privateMsg = parts.slice(2).join(" ");
+
+    if (!targetUser || !privateMsg) {
+      socket.write("Usage: /pm username message\n");
+      return;
     }
+
+    const targetSocket = userSockets.get(targetUser);
+
+    if (!targetSocket) {
+      socket.write(`User ${targetUser} is not online\n`);
+      return;
+    }
+
+    targetSocket.write(`[PM from ${socket.username}]: ${privateMsg}\n`);
+    socket.write(`[PM to ${targetUser}]: ${privateMsg}\n`);
+    return;
+  }
+
+  // NORMAL PUBLIC CHAT
+  broadcast(`${socket.username}: ${input}\n`, socket);
+}
   });
 
   socket.on("end", () => {
     if (socket.authenticated) {
       const index = clients.indexOf(socket);
       if (index !== -1) clients.splice(index, 1);
+
+      userSockets.delete(socket.username);
       broadcast(`${socket.username} left the chat\n`);
     }
   });
