@@ -1,29 +1,109 @@
 const net = require("net");
+const fs = require("fs");
+
+
+function loadUsers() {
+  if (!fs.existsSync("users.json")) {
+    fs.writeFileSync("users.json", "{}");
+  }
+  return JSON.parse(fs.readFileSync("users.json", "utf8"));
+}
+
+function saveUsers(users){
+  fs.writeFileSync("users.json", JSON.stringify(users, null, 2));
+}
 
 const clients = [];
 
 const server = net.createServer((socket) => {
-  socket.write("Welcome to Terminal Chat\n");
-  socket.write("Enter your name: ");
+
+  socket.authenticated = false;
+  socket.stage = "MENU"; // MENU | REG_USER | REG_PASS | LOGIN_USER | LOGIN_PASS
+  socket.tempUsername = "";
+
+  socket.write("1. Register\n2. Login\nChoose option: ");
 
   socket.on("data", (data) => {
-    const message = data.toString().trim();
+    const input = data.toString().trim();
+    const users = loadUsers();
 
-    // First message = username
-    if (!socket.username) {
-      socket.username = message;
+    // -------- MENU --------
+    if (socket.stage === "MENU") {
+      if (input === "1") {
+        socket.stage = "REG_USER";
+        socket.write("Enter username: ");
+        return;
+      }
+      if (input === "2") {
+        socket.stage = "LOGIN_USER";
+        socket.write("Enter username: ");
+        return;
+      }
+      socket.write("Invalid choice\nChoose option: ");
+      return;
+    }
+
+    // REGISTER USERNAME
+    if (socket.stage === "REG_USER") {
+      if (users[input]) {
+        socket.write("Username already exists\nEnter username: ");
+        return;
+      }
+      socket.tempUsername = input;
+      socket.stage = "REG_PASS";
+      socket.write("Enter password: ");
+      return;
+    }
+
+    // REGISTER PASSWORD 
+    if (socket.stage === "REG_PASS") {
+      users[socket.tempUsername] = input;
+      saveUsers(users);
+
+      socket.stage = "MENU";
+      socket.write("Registration successful\n\n1. Register\n2. Login\nChoose option: ");
+      return;
+    }
+
+    // LOGIN USERNAME 
+    if (socket.stage === "LOGIN_USER") {
+      if (!users[input]) {
+        socket.write("User not found\nEnter username: ");
+        return;
+      }
+      socket.tempUsername = input;
+      socket.stage = "LOGIN_PASS";
+      socket.write("Enter password: ");
+      return;
+    }
+
+    // LOGIN PASSWORD
+    if (socket.stage === "LOGIN_PASS") {
+      if (users[socket.tempUsername] !== input) {
+        socket.write("Wrong password\nEnter password: ");
+        return;
+      }
+
+      socket.authenticated = true;
+      socket.username = socket.tempUsername;
+      socket.stage = "CHAT";
       clients.push(socket);
+
+      socket.write("Login successful. You can chat now.\n");
       broadcast(`${socket.username} joined the chat\n`, socket);
       return;
     }
 
-    // Normal chat message
-    broadcast(`${socket.username}: ${message}\n`, socket);
+    // CHAT
+    if (socket.stage === "CHAT") {
+      broadcast(`${socket.username}: ${input}\n`, socket);
+    }
   });
 
   socket.on("end", () => {
-    clients.splice(clients.indexOf(socket), 1);
-    if (socket.username) {
+    if (socket.authenticated) {
+      const index = clients.indexOf(socket);
+      if (index !== -1) clients.splice(index, 1);
       broadcast(`${socket.username} left the chat\n`);
     }
   });

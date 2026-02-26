@@ -21,6 +21,7 @@ rl.question("Enter your username: ", (username) => {
     client.write(input); // normal chat messages
   });
 
+  
   client.on("end", () => {
     console.log("Disconnected from server");
     process.exit(0);
