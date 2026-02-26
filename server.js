@@ -100,6 +100,18 @@ const server = net.createServer((socket) => {
    // -------- CHAT --------
 if (socket.stage === "CHAT") {
 
+  // -------- ONLINE USERS LIST --------
+  if (input === "/users") {
+  const onlineUsers = Array.from(userSockets.keys());
+
+  if (onlineUsers.length === 0) {
+    socket.write("No users online\n");
+  } else {
+    socket.write("Online users: " + onlineUsers.join(", ") + "\n");
+  }
+  return;
+ }
+
   // PRIVATE MESSAGE
   if (input.startsWith("/pm ")) {
     const parts = input.split(" ");
