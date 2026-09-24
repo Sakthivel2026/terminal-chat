@@ -1,4 +1,6 @@
 node_modules/
-users.db
-
+.env
+.env.*
+cloudflared.exe
 ngrok.exe
+*.log
