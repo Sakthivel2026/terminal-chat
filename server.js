@@ -1,164 +1,566 @@
 const net = require("net");
-const fs = require("fs");
 
-
-function loadUsers() {
-  if (!fs.existsSync("users.json")) {
-    fs.writeFileSync("users.json", "{}");
-  }
-  return JSON.parse(fs.readFileSync("users.json", "utf8"));
-}
-
-function saveUsers(users){
-  fs.writeFileSync("users.json", JSON.stringify(users, null, 2));
-}
+const {
+    registerUser,
+    loginUser
+} = require("./auth/authService");
 
 const clients = [];
 const userSockets = new Map();
 
+
+// ========================================
+// CREATE TCP SERVER
+// ========================================
+
 const server = net.createServer((socket) => {
 
-  socket.authenticated = false;
-  socket.stage = "MENU"; // MENU | REG_USER | REG_PASS | LOGIN_USER | LOGIN_PASS
-  socket.tempUsername = "";
+    // ------------------------------------
+    // Initial socket state
+    // ------------------------------------
 
-  socket.write("1. Register\n2. Login\nChoose option: ");
+    socket.authenticated = false;
+    socket.stage = "MENU";
 
-  socket.on("data", (data) => {
-    const input = data.toString().trim();
-    if (!input) return;
-    const users = loadUsers();
+    socket.tempUsername = "";
+    socket.tempEmail = "";
 
-    // -------- MENU --------
-    if (socket.stage === "MENU") {
-      if (input === "1") {
-        socket.stage = "REG_USER";
-        socket.write("Enter username: ");
-        return;
-      }
-      if (input === "2") {
-        socket.stage = "LOGIN_USER";
-        socket.write("Enter username: ");
-        return;
-      }
-      socket.write("Invalid choice\nChoose option: ");
-      return;
-    }
 
-    // REGISTER USERNAME
-    if (socket.stage === "REG_USER") {
-      if (users[input]) {
-        socket.write("Username already exists\nEnter username: ");
-        return;
-      }
-      socket.tempUsername = input;
-      socket.stage = "REG_PASS";
-      socket.write("Enter password: ");
-      return;
-    }
+    // ------------------------------------
+    // Welcome message
+    // ------------------------------------
 
-    // REGISTER PASSWORD 
-    if (socket.stage === "REG_PASS") {
-      users[socket.tempUsername] = input;
-      saveUsers(users);
+    socket.write(
+        "\n=== TERMINAL CHAT ===\n" +
+        "1. Register\n" +
+        "2. Login\n" +
+        "Choose option: "
+    );
 
-      socket.stage = "MENU";
-      socket.write("Registration successful\n\n1. Register\n2. Login\nChoose option: ");
-      return;
-    }
 
-    // LOGIN USERNAME 
-    if (socket.stage === "LOGIN_USER") {
-      if (!users[input]) {
-        socket.write("User not found\nEnter username: ");
-        return;
-      }
-      socket.tempUsername = input;
-      socket.stage = "LOGIN_PASS";
-      socket.write("Enter password: ");
-      return;
-    }
+    // ========================================
+    // RECEIVE CLIENT DATA
+    // ========================================
 
-    // LOGIN PASSWORD
-    if (socket.stage === "LOGIN_PASS") {
-      if (users[socket.tempUsername] !== input) {
-        socket.write("Wrong password\nEnter password: ");
-        return;
-      }
+    socket.on("data", async (data) => {
 
-      socket.authenticated = true;
-      socket.username = socket.tempUsername;
-      socket.stage = "CHAT";
-      clients.push(socket);
-      userSockets.set(socket.username, socket);
+        const input = data.toString().trim();
 
-      socket.write("Login successful. You can chat now.\n");
-      broadcast(`${socket.username} joined the chat\n`, socket);
-      return;
-    }
+        if (!input) {
+            return;
+        }
 
-   // -------- CHAT --------
-if (socket.stage === "CHAT") {
 
-  // -------- ONLINE USERS LIST --------
-  if (input === "/users") {
-  const onlineUsers = Array.from(userSockets.keys());
+        try {
 
-  if (onlineUsers.length === 0) {
-    socket.write("No users online\n");
-  } else {
-    socket.write("Online users: " + onlineUsers.join(", ") + "\n");
-  }
-  return;
- }
+            // ========================================
+            // MENU
+            // ========================================
 
-  // PRIVATE MESSAGE
-  if (input.startsWith("/pm ")) {
-    const parts = input.split(" ");
-    const targetUser = parts[1];
-    const privateMsg = parts.slice(2).join(" ");
+            if (socket.stage === "MENU") {
 
-    if (!targetUser || !privateMsg) {
-      socket.write("Usage: /pm username message\n");
-      return;
-    }
+                if (input === "1") {
 
-    const targetSocket = userSockets.get(targetUser);
+                    socket.stage = "REG_USER";
 
-    if (!targetSocket) {
-      socket.write(`User ${targetUser} is not online\n`);
-      return;
-    }
+                    socket.write(
+                        "Enter username: "
+                    );
 
-    targetSocket.write(`[PM from ${socket.username}]: ${privateMsg}\n`);
-    socket.write(`[PM to ${targetUser}]: ${privateMsg}\n`);
-    return;
-  }
+                    return;
+                }
 
-  // NORMAL PUBLIC CHAT
-  broadcast(`${socket.username}: ${input}\n`, socket);
-}
-  });
 
-  socket.on("end", () => {
-    if (socket.authenticated) {
-      const index = clients.indexOf(socket);
-      if (index !== -1) clients.splice(index, 1);
+                if (input === "2") {
 
-      userSockets.delete(socket.username);
-      broadcast(`${socket.username} left the chat\n`);
-    }
-  });
+                    socket.stage = "LOGIN_USER";
+
+                    socket.write(
+                        "Enter username: "
+                    );
+
+                    return;
+                }
+
+
+                socket.write(
+                    "Invalid choice\n" +
+                    "Choose option: "
+                );
+
+                return;
+            }
+
+
+            // ========================================
+            // REGISTER - USERNAME
+            // ========================================
+
+            if (socket.stage === "REG_USER") {
+
+                socket.tempUsername = input;
+
+                socket.stage = "REG_EMAIL";
+
+                socket.write(
+                    "Enter email: "
+                );
+
+                return;
+            }
+
+
+            // ========================================
+            // REGISTER - EMAIL
+            // ========================================
+
+            if (socket.stage === "REG_EMAIL") {
+
+            // Basic email validation
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+            if (!emailRegex.test(input)) {
+
+            socket.write(
+            "Invalid email format.\n" +
+            "Enter email: "
+             );
+
+             return;
+            }
+
+            socket.tempEmail = input;
+
+            socket.stage = "REG_PASS";
+
+             socket.write(
+             "Enter password: "
+             );
+
+            return;
+             }
+
+
+            // ========================================
+            // REGISTER - PASSWORD
+            // ========================================
+
+            if (socket.stage === "REG_PASS") {
+
+                const user = await registerUser(
+                    socket.tempUsername,
+                    socket.tempEmail,
+                    input
+                );
+
+
+                // Clear temporary data
+
+                socket.tempUsername = "";
+                socket.tempEmail = "";
+
+                socket.stage = "MENU";
+
+
+                socket.write(
+                    "\nRegistration successful!\n" +
+                    `Welcome ${user.username}.\n\n` +
+                    "1. Register\n" +
+                    "2. Login\n" +
+                    "Choose option: "
+                );
+
+                return;
+            }
+
+
+            // ========================================
+            // LOGIN - USERNAME
+            // ========================================
+
+            if (socket.stage === "LOGIN_USER") {
+
+                socket.tempUsername = input;
+
+                socket.stage = "LOGIN_PASS";
+
+                socket.write(
+                    "Enter password: "
+                );
+
+                return;
+            }
+
+
+            // ========================================
+            // LOGIN - PASSWORD
+            // ========================================
+
+            if (socket.stage === "LOGIN_PASS") {
+
+                const user = await loginUser(
+                    socket.tempUsername,
+                    input
+                );
+
+
+                // ------------------------------------
+                // Prevent duplicate login
+                // ------------------------------------
+
+                if (userSockets.has(user.username)) {
+
+                    socket.write(
+                        "This user is already logged in.\n"
+                    );
+
+                    socket.tempUsername = "";
+                    socket.stage = "MENU";
+
+                    socket.write(
+                        "\n1. Register\n" +
+                        "2. Login\n" +
+                        "Choose option: "
+                    );
+
+                    return;
+                }
+
+
+                // ------------------------------------
+                // Authenticate socket
+                // ------------------------------------
+
+                socket.authenticated = true;
+
+                socket.username = user.username;
+                socket.userId = user.id;
+
+                socket.tempUsername = "";
+
+                socket.stage = "CHAT";
+
+
+                // Add user to online users
+
+                clients.push(socket);
+
+                userSockets.set(
+                    socket.username,
+                    socket
+                );
+
+
+                socket.write(
+                    "\nLogin successful!\n" +
+                    `Welcome ${socket.username}!\n\n` +
+                    "Available commands:\n" +
+                    "/users - Show online users\n" +
+                    "/pm username message - Private message\n" +
+                    "/logout - Logout\n\n"
+                );
+
+
+                broadcast(
+                    `${socket.username} joined the chat.\n`,
+                    socket
+                );
+
+                return;
+            }
+
+
+            // ========================================
+            // CHAT
+            // ========================================
+
+            if (socket.stage === "CHAT") {
+
+
+                // ====================================
+                // /users
+                // ====================================
+
+                if (input === "/users") {
+
+                    const onlineUsers =
+                        Array.from(userSockets.keys());
+
+
+                    if (onlineUsers.length === 0) {
+
+                        socket.write(
+                            "No users online.\n"
+                        );
+
+                    } else {
+
+                        socket.write(
+                            "Online users: " +
+                            onlineUsers.join(", ") +
+                            "\n"
+                        );
+                    }
+
+                    return;
+                }
+
+
+                // ====================================
+                // /pm
+                // ====================================
+
+                if (input.startsWith("/pm ")) {
+
+                    const parts = input.split(" ");
+
+                    const targetUser = parts[1];
+
+                    const privateMessage =
+                        parts.slice(2).join(" ");
+
+
+                    if (!targetUser || !privateMessage) {
+
+                        socket.write(
+                            "Usage: /pm username message\n"
+                        );
+
+                        return;
+                    }
+
+
+                    const targetSocket =
+                        userSockets.get(targetUser);
+
+
+                    if (!targetSocket) {
+
+                        socket.write(
+                            `User ${targetUser} is not online.\n`
+                        );
+
+                        return;
+                    }
+
+
+                    // Send to receiver
+
+                    targetSocket.write(
+                        `[PM from ${socket.username}]: ${privateMessage}\n`
+                    );
+
+
+                    // Confirm to sender
+
+                    socket.write(
+                        `[PM to ${targetUser}]: ${privateMessage}\n`
+                    );
+
+                    return;
+                }
+
+
+                // ====================================
+                // /logout
+                // ====================================
+
+                if (input === "/logout") {
+
+                    logoutUser(socket);
+
+                    return;
+                }
+
+
+                // ====================================
+                // PUBLIC CHAT MESSAGE
+                // ====================================
+
+                broadcast(
+                    `${socket.username}: ${input}\n`,
+                    socket
+                );
+
+                return;
+            }
+
+        } catch (error) {
+
+            console.error(
+                "Server error:",
+                error.message
+            );
+
+
+            // ------------------------------------
+            // Registration errors
+            // ------------------------------------
+
+            if (socket.stage === "REG_PASS") {
+
+                socket.write(
+                    `Registration failed: ${error.message}\n`
+                );
+
+                socket.tempUsername = "";
+                socket.tempEmail = "";
+
+                socket.stage = "MENU";
+
+                socket.write(
+                    "\n1. Register\n" +
+                    "2. Login\n" +
+                    "Choose option: "
+                );
+
+                return;
+            }
+
+
+            // ------------------------------------
+            // Login errors
+            // ------------------------------------
+
+            if (socket.stage === "LOGIN_PASS") {
+
+                socket.write(
+                    `${error.message}\n`
+                );
+
+                socket.tempUsername = "";
+
+                socket.stage = "MENU";
+
+                socket.write(
+                    "\n1. Register\n" +
+                    "2. Login\n" +
+                    "Choose option: "
+                );
+
+                return;
+            }
+
+
+            socket.write(
+                "Server error. Please try again.\n"
+            );
+        }
+    });
+
+
+    // ========================================
+    // CLIENT DISCONNECT
+    // ========================================
+
+    socket.on("end", () => {
+
+        if (socket.authenticated) {
+
+            removeClient(socket);
+
+            broadcast(
+                `${socket.username} left the chat.\n`
+            );
+        }
+    });
+
+
+    // ========================================
+    // SOCKET ERROR
+    // ========================================
+
+    socket.on("error", (error) => {
+
+        console.error(
+            `Socket error for ${socket.username || "unknown user"}:`,
+            error.message
+        );
+    });
+
 });
 
-function broadcast(msg, sender) {
-  clients.forEach((client) => {
-    if (client !== sender) {
-      client.write(msg);
-    }
-  });
+
+// ========================================
+// BROADCAST MESSAGE
+// ========================================
+
+function broadcast(message, sender = null) {
+
+    clients.forEach((client) => {
+
+        if (
+            client !== sender &&
+            !client.destroyed
+        ) {
+            client.write(message);
+        }
+
+    });
 }
 
+
+// ========================================
+// REMOVE CLIENT
+// ========================================
+
+function removeClient(socket) {
+
+    const index = clients.indexOf(socket);
+
+    if (index !== -1) {
+        clients.splice(index, 1);
+    }
+
+
+    if (socket.username) {
+
+        userSockets.delete(
+            socket.username
+        );
+    }
+
+
+    socket.authenticated = false;
+}
+
+
+// ========================================
+// LOGOUT
+// ========================================
+
+function logoutUser(socket) {
+
+    const username = socket.username;
+
+    removeClient(socket);
+
+    socket.stage = "MENU";
+    socket.username = "";
+    socket.userId = null;
+
+    socket.write(
+        "\nLogged out successfully.\n\n" +
+        "1. Register\n" +
+        "2. Login\n" +
+        "Choose option: "
+    );
+
+
+    broadcast(
+        `${username} left the chat.\n`
+    );
+}
+
+
+// ========================================
+// START SERVER
+// ========================================
+
 server.listen(3000, () => {
-  console.log("Terminal chat server running on port 3000");
+
+    console.log(
+        "Terminal Chat server running on port 3000"
+    );
+
 });
